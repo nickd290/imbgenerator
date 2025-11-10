@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMB Generator - Intelligent Mail Barcode</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container py-4">
+        <!-- Header -->
+        <header class="mb-4">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h1 class="display-4">
+                        <i class="bi bi-upc-scan text-primary"></i>
+                        IMB Generator
+                    </h1>
+                    <p class="lead text-muted mb-0">Generate USPS Intelligent Mail Barcodes for your mailing lists</p>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-outline-secondary me-2" data-bs-toggle="modal" data-bs-target="#customerModal">
+                        <i class="bi bi-people"></i> Manage Customers
+                    </button>
+                    <a href="/api/sample" class="btn btn-outline-primary">
+                        <i class="bi bi-download"></i> Sample CSV
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Form -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-gear-fill"></i> IMB Generation Setup
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Customer Selection -->
+                <div class="row g-3 mb-4 pb-3 border-bottom">
+                    <div class="col-12">
+                        <h6 class="fw-bold text-primary">
+                            <i class="bi bi-person-badge"></i> Customer
+                        </h6>
+                    </div>
+                    <div class="col-md-10">
+                        <label class="form-label fw-bold">Select Customer <span class="text-danger">*</span></label>
+                        <select id="customer-select" class="form-select" required>
+                            <option value="">-- Select a customer --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="button" class="btn btn-outline-primary w-100" onclick="openCustomerModal()">
+                            <i class="bi bi-plus-circle"></i> Add New
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Configuration -->
+                <div class="row g-3 mb-4 pb-3 border-bottom">
+                    <div class="col-12">
+                        <h6 class="fw-bold text-primary">
+                            <i class="bi bi-sliders"></i> IMB Configuration
+                        </h6>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">USPS Mailer ID <span class="text-danger">*</span></label>
+                        <input type="text" id="mailer-id" class="form-control" placeholder="6 or 9 digit Mailer ID" maxlength="9" required>
+                        <small class="text-muted">Obtain from USPS Business Customer Gateway</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Starting Sequence Number <span class="text-danger">*</span></label>
+                        <input type="number" id="starting-sequence" class="form-control" value="1" min="1" required>
+                        <small class="text-muted">Auto-increments for each record</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Service Type <span class="text-danger">*</span></label>
+                        <select id="service-type" class="form-select" required>
+                            <option value="040">040 - First-Class Mail</option>
+                            <option value="240">240 - USPS Marketing Mail</option>
+                            <option value="340">340 - Periodicals</option>
+                            <option value="440">440 - Bound Printed Matter</option>
+                            <option value="540">540 - Package Services</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Barcode Identifier</label>
+                        <input type="text" id="barcode-id" class="form-control" value="00" maxlength="2">
+                        <small class="text-muted">2-digit identifier (default: 00)</small>
+                    </div>
+                </div>
+
+                <!-- File Upload -->
+                <div class="row g-3">
+                    <div class="col-12">
+                        <h6 class="fw-bold text-primary">
+                            <i class="bi bi-cloud-upload"></i> Upload Mailing List
+                        </h6>
+                    </div>
+                    <div class="col-12">
+                        <div id="drop-zone" class="border border-2 border-dashed rounded p-4 text-center">
+                            <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                            <p class="mt-3 mb-2">Drag and drop your file here or click to browse</p>
+                            <p class="text-muted small">Supported formats: CSV, XLSX, XLS (Max 50MB)</p>
+                            <input type="file" id="file-input" class="d-none" accept=".csv,.xlsx,.xls">
+                            <button type="button" class="btn btn-primary mt-2" onclick="document.getElementById('file-input').click()">
+                                <i class="bi bi-folder2-open"></i> Select File
+                            </button>
+                        </div>
+                        <div id="upload-status" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column Mapping Section (Shows after upload) -->
+        <section id="mapping-section" class="mb-4" style="display: none;">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-arrow-left-right"></i> Map Address Columns
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        Map your file columns to the required address fields. Auto-detected columns are pre-selected.
+                    </div>
+
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Street Address <span class="text-danger">*</span></label>
+                            <select id="map-street" class="form-select"></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">City <span class="text-danger">*</span></label>
+                            <select id="map-city" class="form-select"></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">State <span class="text-danger">*</span></label>
+                            <select id="map-state" class="form-select"></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">ZIP Code (5-digit) <span class="text-danger">*</span></label>
+                            <select id="map-zip" class="form-select"></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">ZIP+4 (4-digit) <span class="text-muted">(Optional)</span></label>
+                            <select id="map-zip4" class="form-select">
+                                <option value="">-- None (will be looked up) --</option>
+                            </select>
+                            <small class="text-muted">If not provided, the USPS API will find it automatically</small>
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bold">Data Preview (First 10 Rows)</h6>
+                    <div class="table-responsive">
+                        <table id="preview-table" class="table table-sm table-bordered table-hover">
+                            <thead class="table-light"></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <p class="text-muted small">
+                        <strong>File Info:</strong> <span id="file-info"></span>
+                    </p>
+
+                    <div class="text-end mt-4">
+                        <button type="button" id="process-btn" class="btn btn-success btn-lg">
+                            <i class="bi bi-play-circle"></i> Process Mailing List
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="mt-5 pt-4 border-top text-center text-muted">
+            <p>
+                <strong>IMB Generator</strong> - USPS Intelligent Mail Barcode Tool
+                <br>
+                <small>Powered by USPS Address Validation API</small>
+            </p>
+        </footer>
+    </div>
+
+    <!-- Customer Management Modal -->
+    <div class="modal fade" id="customerModal" tabindex="-1" aria-labelledby="customerModalLabel" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="customerModalLabel">
+                        <i class="bi bi-people-fill"></i> Manage Customers
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Add/Edit Customer Form -->
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0" id="customer-form-title">Add New Customer</h6>
+                        </div>
+                        <div class="card-body">
+                            <form id="customer-form">
+                                <input type="hidden" id="edit-customer-id">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Customer Name <span class="text-danger">*</span></label>
+                                        <input type="text" id="customer-name" class="form-control" required>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Company Name</label>
+                                        <input type="text" id="customer-company" class="form-control">
+                                    </div>
+                                    <div class="col-md-12">
+                                        <label class="form-label">Email</label>
+                                        <input type="email" id="customer-email" class="form-control" placeholder="optional@example.com">
+                                        <small class="text-muted">Optional - leave blank if not available</small>
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="bi bi-save"></i> Save Customer
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" onclick="resetCustomerForm()">
+                                            <i class="bi bi-x-circle"></i> Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Customers List -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">Existing Customers</h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="customers-list-container">
+                                <div class="text-center text-muted py-3">
+                                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                                    Loading customers...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Modal -->
+    <div class="modal fade" id="progressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="progressModalLabel" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="progressModalLabel">
+                        <i class="bi bi-hourglass-split"></i> Processing
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                            <span class="visually-hidden">Processing...</span>
+                        </div>
+                        <h5 id="progress-title">Processing your mailing list...</h5>
+                        <p class="text-muted" id="progress-details">Validating addresses and generating barcodes</p>
+                        <div class="progress mt-3" style="height: 30px;">
+                            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                                 role="progressbar" style="width: 0%">
+                                <span id="progress-text">0%</span>
+                            </div>
+                        </div>
+                        <p class="text-muted small mt-2" id="progress-status">Starting...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Modal -->
+    <div class="modal fade" id="resultsModal" tabindex="-1" aria-labelledby="resultsModalLabel" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="resultsModalLabel">
+                        <i class="bi bi-check-circle-fill"></i> Processing Complete
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Customer & Job Info -->
+                    <div class="alert alert-info mb-3">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <strong>Customer:</strong> <span id="result-customer-name">-</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>File:</strong> <span id="result-filename">-</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>Processed:</strong> <span id="result-timestamp">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Summary Stats -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-3">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="stat-total">0</h3>
+                                    <small class="text-muted">Total Records</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="stat-success">0</h3>
+                                    <small>Successful</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-danger text-white">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="stat-failed">0</h3>
+                                    <small>Failed</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body text-center">
+                                    <h3 class="mb-0" id="stat-api-calls">0</h3>
+                                    <small>API Calls</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Results Table -->
+                    <h6 class="fw-bold">Results Preview (First 50 Rows)</h6>
+                    <div class="table-responsive" style="max-height: 400px;">
+                        <table id="results-table" class="table table-sm table-bordered table-hover">
+                            <thead class="table-light"></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="download-errors-btn" class="btn btn-warning" style="display: none;">
+                        <i class="bi bi-exclamation-triangle"></i> Download Error Report
+                    </button>
+                    <button id="download-btn" class="btn btn-success">
+                        <i class="bi bi-download"></i> Download Results
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="location.reload()">
+                        <i class="bi bi-arrow-clockwise"></i> Process Another File
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
