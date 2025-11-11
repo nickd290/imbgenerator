@@ -229,7 +229,7 @@ def process_file():
             return jsonify({'error': 'No file uploaded'}), 400
 
         # Validate configuration
-        required_config = ['mailer_id', 'service_type', 'api_provider', 'customer_id']
+        required_config = ['mailer_id', 'api_provider', 'customer_id']
         for field in required_config:
             if field not in config:
                 return jsonify({'error': f'Missing configuration: {field}'}), 400
@@ -239,21 +239,46 @@ def process_file():
         if not customer:
             return jsonify({'error': 'Invalid customer ID'}), 400
 
+        # Map mail service mode to STID (if provided, otherwise use explicit service_type)
+        mail_service_mode = config.get('mail_service_mode')
+        if mail_service_mode:
+            # Map mode to STID
+            if mail_service_mode == 'basic':
+                service_type = '240'  # USPS Marketing Mail (Non-Full-Service)
+            elif mail_service_mode == 'full_service':
+                service_type = '271'  # USPS Marketing Mail (Full-Service)
+            else:
+                return jsonify({'error': f'Invalid mail_service_mode: {mail_service_mode}'}), 400
+        else:
+            # Use explicit service type if provided
+            service_type = config.get('service_type', '040')
+            mail_service_mode = 'custom'  # Indicate user manually selected STID
+
+        # Auto-retrieve last sequence if not manually specified
+        starting_sequence = config.get('starting_sequence')
+        if not starting_sequence and customer.last_mailer_id_used == config.get('mailer_id'):
+            # Continue from last sequence for this customer/mailer ID combo
+            starting_sequence = customer.last_sequence_number + 1
+            app.logger.info(f"Auto-continuing sequence from {customer.last_sequence_number} for customer {customer.name}")
+        else:
+            starting_sequence = int(starting_sequence) if starting_sequence else 1
+
         # Create Job record
         job = Job(
             customer_id=config['customer_id'],
             filename=session.get('original_filename', 'unknown.csv'),
             mailer_id=config.get('mailer_id'),
-            sequence_start=int(config.get('starting_sequence', 1)),
-            service_type=config.get('service_type', '040'),
+            sequence_start=starting_sequence,
+            service_type=service_type,
             barcode_id=config.get('barcode_id', '00'),
+            mail_service_mode=mail_service_mode,
             status='processing',
             started_at=datetime.utcnow()
         )
         db.session.add(job)
         db.session.commit()
 
-        app.logger.info(f"Created Job {job.id} for customer {customer.name}")
+        app.logger.info(f"Created Job {job.id} for customer {customer.name} with mode: {mail_service_mode}, STID: {service_type}")
 
         # Load file
         df = file_processor.load_file(session['uploaded_file'])
@@ -268,13 +293,13 @@ def process_file():
         # Initialize IMB generator
         imb_gen = IMBGenerator(
             barcode_id=config.get('barcode_id', '00'),
-            service_type=config.get('service_type', '040'),
+            service_type=service_type,
             mailer_id=config.get('mailer_id')
         )
 
         # Process each row
         results = []
-        sequence_num = int(config.get('starting_sequence', 1))
+        sequence_num = starting_sequence
 
         for idx, row in df_prepared.iterrows():
             try:
@@ -371,17 +396,26 @@ def process_file():
         # Generate summary
         summary = file_processor.get_processing_summary(df_with_imb)
 
+        # Calculate ending sequence (last sequence number used)
+        ending_sequence = sequence_num - 1  # We increment after each record, so last used is current - 1
+
         # Update Job record with results
         job.total_records = summary['total_records']
         job.successful_records = summary['successful']
         job.failed_records = summary['failed']
         job.output_file_path = output_path
         job.error_file_path = error_path
+        job.sequence_end = ending_sequence
         job.status = 'complete'
         job.completed_at = datetime.utcnow()
+
+        # Update Customer's sequence tracking for future jobs
+        customer.last_sequence_number = ending_sequence
+        customer.last_mailer_id_used = config.get('mailer_id')
+
         db.session.commit()
 
-        app.logger.info(f"Job {job.id} completed: {summary['successful']}/{summary['total_records']} successful")
+        app.logger.info(f"Job {job.id} completed: {summary['successful']}/{summary['total_records']} successful, sequences {starting_sequence}-{ending_sequence}")
 
         # Return results preview (first 50 rows) - comprehensive NaN cleaning for JSON serialization
         results_df = df_with_imb.head(50)
@@ -396,7 +430,12 @@ def process_file():
             'results': results_preview,
             'output_filename': os.path.basename(output_path),
             'error_filename': os.path.basename(error_path) if error_path else None,
-            'job_id': job.id
+            'job_id': job.id,
+            'sequence_start': starting_sequence,
+            'sequence_end': ending_sequence,
+            'next_sequence': ending_sequence + 1,
+            'mail_service_mode': mail_service_mode,
+            'service_type': service_type
         })
 
     except Exception as e:
@@ -611,6 +650,52 @@ def delete_customer(customer_id):
         db.session.rollback()
         app.logger.error(f"Error deleting customer: {str(e)}")
         return jsonify({'error': 'Failed to delete customer'}), 500
+
+
+@app.route('/api/customers/<int:customer_id>/sequence-info', methods=['GET'])
+def get_customer_sequence_info(customer_id):
+    """
+    Get sequence tracking information for a customer.
+    Optionally check for specific mailer_id.
+
+    Query params:
+        mailer_id: Check if this mailer ID matches the last used one
+
+    Returns:
+        JSON with last_sequence_number, last_mailer_id_used, and next_suggested_sequence
+    """
+    try:
+        customer = Customer.query.get_or_404(customer_id)
+        requested_mailer_id = request.args.get('mailer_id')
+
+        # Calculate next suggested sequence
+        if customer.last_mailer_id_used and customer.last_sequence_number:
+            # Check if mailer ID matches (if provided)
+            if requested_mailer_id and requested_mailer_id == customer.last_mailer_id_used:
+                next_sequence = customer.last_sequence_number + 1
+                can_auto_continue = True
+            elif not requested_mailer_id:
+                next_sequence = customer.last_sequence_number + 1
+                can_auto_continue = True if customer.last_mailer_id_used else False
+            else:
+                # Different mailer ID - suggest starting from 1
+                next_sequence = 1
+                can_auto_continue = False
+        else:
+            # No previous jobs - start from 1
+            next_sequence = 1
+            can_auto_continue = False
+
+        return jsonify({
+            'last_sequence_number': customer.last_sequence_number,
+            'last_mailer_id_used': customer.last_mailer_id_used,
+            'next_suggested_sequence': next_sequence,
+            'can_auto_continue': can_auto_continue
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error fetching sequence info: {str(e)}")
+        return jsonify({'error': 'Failed to fetch sequence info'}), 500
 
 
 # ========================================

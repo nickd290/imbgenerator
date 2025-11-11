@@ -59,7 +59,7 @@ class IMBGenerator:
             errors.append(f"Barcode ID must be 2 digits, got: {self.barcode_id}")
 
         # Validate Service Type
-        valid_stids = ['040', '240', '340', '440', '540']
+        valid_stids = ['040', '240', '271', '340', '440', '540']
         if self.service_type not in valid_stids:
             errors.append(f"Service Type must be one of {valid_stids}, got: {self.service_type}")
 

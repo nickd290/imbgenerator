@@ -84,18 +84,38 @@
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Starting Sequence Number <span class="text-danger">*</span></label>
                         <input type="number" id="starting-sequence" class="form-control" value="1" min="1" required>
-                        <small class="text-muted">Auto-increments for each record</small>
+                        <small class="text-muted" id="sequence-helper-text">Auto-increments for each record</small>
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Service Type <span class="text-danger">*</span></label>
-                        <select id="service-type" class="form-select" required>
+                        <label class="form-label fw-bold">Mail Service Mode <span class="text-danger">*</span></label>
+                        <div class="btn-group w-100" role="group" aria-label="Mail Service Mode">
+                            <input type="radio" class="btn-check" name="mail-mode" id="mail-mode-basic" value="basic">
+                            <label class="btn btn-outline-primary" for="mail-mode-basic">
+                                <i class="bi bi-envelope"></i> Basic
+                            </label>
+
+                            <input type="radio" class="btn-check" name="mail-mode" id="mail-mode-full" value="full_service" checked>
+                            <label class="btn btn-outline-primary" for="mail-mode-full">
+                                <i class="bi bi-envelope-check"></i> Full-Service
+                            </label>
+                        </div>
+                        <small class="text-muted">
+                            <span id="mail-mode-description">Full-Service (STID 271) - USPS Marketing Mail with enhanced tracking</span>
+                        </small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Service Type <span class="text-muted">(Advanced)</span></label>
+                        <select id="service-type" class="form-select">
                             <option value="040">040 - First-Class Mail</option>
-                            <option value="240">240 - USPS Marketing Mail</option>
+                            <option value="240">240 - USPS Marketing Mail (Basic)</option>
+                            <option value="271">271 - USPS Marketing Mail (Full-Service)</option>
                             <option value="340">340 - Periodicals</option>
                             <option value="440">440 - Bound Printed Matter</option>
                             <option value="540">540 - Package Services</option>
                         </select>
+                        <small class="text-muted">Leave as auto-selected unless using other mail classes</small>
                     </div>
 
                     <div class="col-md-6">

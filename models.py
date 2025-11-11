@@ -25,6 +25,10 @@ class Customer(db.Model):
     default_sequence_start = db.Column(db.Integer, default=1)
     api_provider = db.Column(db.String(20), default='usps')
 
+    # Sequence tracking (prevents duplicate IMB sequence numbers)
+    last_sequence_number = db.Column(db.Integer, default=0)
+    last_mailer_id_used = db.Column(db.String(20))
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -43,6 +47,8 @@ class Customer(db.Model):
             'default_barcode_id': self.default_barcode_id,
             'default_sequence_start': self.default_sequence_start,
             'api_provider': self.api_provider,
+            'last_sequence_number': self.last_sequence_number,
+            'last_mailer_id_used': self.last_mailer_id_used,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -60,8 +66,10 @@ class Job(db.Model):
     filename = db.Column(db.String(500), nullable=False)
     mailer_id = db.Column(db.String(20), nullable=False)
     sequence_start = db.Column(db.Integer, nullable=False)
+    sequence_end = db.Column(db.Integer)  # Last sequence number used in this job
     service_type = db.Column(db.String(10))
     barcode_id = db.Column(db.String(10))
+    mail_service_mode = db.Column(db.String(20))  # 'basic' or 'full_service'
 
     # Processing statistics
     total_records = db.Column(db.Integer, default=0)
@@ -90,8 +98,10 @@ class Job(db.Model):
             'filename': self.filename,
             'mailer_id': self.mailer_id,
             'sequence_start': self.sequence_start,
+            'sequence_end': self.sequence_end,
             'service_type': self.service_type,
             'barcode_id': self.barcode_id,
+            'mail_service_mode': self.mail_service_mode,
             'total_records': self.total_records,
             'successful_records': self.successful_records,
             'failed_records': self.failed_records,

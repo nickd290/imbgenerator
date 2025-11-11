@@ -100,6 +100,14 @@ function setupEventListeners() {
     // Customer selection - auto-load settings
     document.getElementById('customer-select').addEventListener('change', onCustomerSelected);
 
+    // Mail mode toggle - update description and service type
+    document.querySelectorAll('input[name="mail-mode"]').forEach(radio => {
+        radio.addEventListener('change', onMailModeChange);
+    });
+
+    // Mailer ID change - update sequence suggestion
+    document.getElementById('mailer-id').addEventListener('input', onMailerIdChange);
+
     // Download buttons
     document.getElementById('download-btn').addEventListener('click', () => downloadFile('output'));
     document.getElementById('download-errors-btn').addEventListener('click', () => downloadFile('errors'));
@@ -323,6 +331,17 @@ async function onCustomerSelected(event) {
             document.getElementById('starting-sequence').value = customer.default_sequence_start;
         }
 
+        // Fetch and update sequence suggestion if customer has used this mailer ID before
+        if (customer.default_mailer_id && customer.last_mailer_id_used) {
+            const sequenceInfo = {
+                last_sequence_number: customer.last_sequence_number,
+                last_mailer_id_used: customer.last_mailer_id_used,
+                next_suggested_sequence: customer.last_sequence_number + 1,
+                can_auto_continue: customer.last_mailer_id_used === customer.default_mailer_id
+            };
+            updateSequenceSuggestion(sequenceInfo);
+        }
+
         // Show badge indicating settings were loaded
         if (customer.default_mailer_id || customer.default_service_type) {
             showSettingsLoadedBadge(customer.name || customer.company_name);
@@ -354,6 +373,81 @@ function showSettingsLoadedBadge(customerName) {
     // Insert after customer select
     const customerSelect = document.getElementById('customer-select');
     customerSelect.parentElement.insertAdjacentElement('afterend', badge);
+}
+
+/**
+ * Handle mail mode toggle change
+ * Updates description text and auto-selects appropriate STID
+ */
+function onMailModeChange(event) {
+    const mode = event.target.value;
+    const descriptionEl = document.getElementById('mail-mode-description');
+    const serviceTypeEl = document.getElementById('service-type');
+
+    if (mode === 'basic') {
+        descriptionEl.textContent = 'Basic (STID 240) - USPS Marketing Mail (Non-Full-Service)';
+        serviceTypeEl.value = '240';
+    } else if (mode === 'full_service') {
+        descriptionEl.textContent = 'Full-Service (STID 271) - USPS Marketing Mail with enhanced tracking';
+        serviceTypeEl.value = '271';
+    }
+
+    console.log(`Mail mode changed to: ${mode}, Service Type: ${serviceTypeEl.value}`);
+}
+
+/**
+ * Handle mailer ID input change
+ * Fetches sequence suggestion for customer/mailer ID combo
+ */
+async function onMailerIdChange(event) {
+    const mailerId = event.target.value.trim();
+    const customerId = parseInt(document.getElementById('customer-select').value);
+
+    if (!customerId || !mailerId) {
+        // Reset to default if no customer or mailer ID
+        document.getElementById('sequence-helper-text').textContent = 'Auto-increments for each record';
+        return;
+    }
+
+    try {
+        // Fetch sequence info for this customer/mailer ID combo
+        const response = await fetch(`/api/customers/${customerId}/sequence-info?mailer_id=${encodeURIComponent(mailerId)}`);
+
+        if (response.ok) {
+            const data = await response.json();
+            updateSequenceSuggestion(data);
+        }
+    } catch (error) {
+        console.error('Error fetching sequence info:', error);
+    }
+}
+
+/**
+ * Update sequence suggestion UI based on tracking data
+ */
+function updateSequenceSuggestion(sequenceInfo) {
+    const sequenceInput = document.getElementById('starting-sequence');
+    const helperText = document.getElementById('sequence-helper-text');
+
+    if (sequenceInfo.can_auto_continue) {
+        // Same mailer ID - suggest continuing sequence
+        sequenceInput.value = sequenceInfo.next_suggested_sequence;
+        helperText.innerHTML = `
+            <i class="bi bi-check-circle text-success"></i>
+            Auto-continuing from last job (ended at ${sequenceInfo.last_sequence_number})
+        `;
+    } else if (sequenceInfo.last_mailer_id_used && sequenceInfo.last_mailer_id_used !== sequenceInput.value) {
+        // Different mailer ID - warn and suggest starting from 1
+        sequenceInput.value = 1;
+        helperText.innerHTML = `
+            <i class="bi bi-exclamation-triangle text-warning"></i>
+            Different Mailer ID detected. Starting fresh from 1
+        `;
+    } else {
+        // No previous jobs
+        sequenceInput.value = 1;
+        helperText.textContent = 'Auto-increments for each record';
+    }
 }
 
 // ========================================
@@ -775,6 +869,10 @@ async function processFile() {
         console.warn('Could not fetch customer API provider, using default:', error);
     }
 
+    // Get mail service mode
+    const mailModeEl = document.querySelector('input[name="mail-mode"]:checked');
+    const mailServiceMode = mailModeEl ? mailModeEl.value : null;
+
     // Get configuration
     const config = {
         customer_id: customerId,
@@ -782,6 +880,7 @@ async function processFile() {
         starting_sequence: parseInt(document.getElementById('starting-sequence').value),
         service_type: document.getElementById('service-type').value,
         barcode_id: document.getElementById('barcode-id').value,
+        mail_service_mode: mailServiceMode,
         api_provider: apiProvider
     };
 
