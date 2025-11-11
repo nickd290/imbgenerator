@@ -17,6 +17,14 @@ class Customer(db.Model):
     name = db.Column(db.String(200), nullable=False)
     company_name = db.Column(db.String(200))
     email = db.Column(db.String(200))
+
+    # Default IMB settings
+    default_mailer_id = db.Column(db.String(20))
+    default_service_type = db.Column(db.String(10), default='040')
+    default_barcode_id = db.Column(db.String(10), default='00')
+    default_sequence_start = db.Column(db.Integer, default=1)
+    api_provider = db.Column(db.String(20), default='usps')
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -30,6 +38,11 @@ class Customer(db.Model):
             'name': self.name,
             'company_name': self.company_name,
             'email': self.email,
+            'default_mailer_id': self.default_mailer_id,
+            'default_service_type': self.default_service_type,
+            'default_barcode_id': self.default_barcode_id,
+            'default_sequence_start': self.default_sequence_start,
+            'api_provider': self.api_provider,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

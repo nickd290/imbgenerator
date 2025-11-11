@@ -25,7 +25,14 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_SIZE', 52428800))  # 50MB default
+
+# File storage configuration
+# For Railway: Set UPLOAD_FOLDER=/app/data (mount Railway Volume at /data)
+# For local development: Uses ./uploads
 app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'uploads')
+
+# Ensure upload folder exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Database configuration
 # Fix PostgreSQL URL dialect for Railway (postgres:// → postgresql://)
@@ -222,10 +229,31 @@ def process_file():
             return jsonify({'error': 'No file uploaded'}), 400
 
         # Validate configuration
-        required_config = ['mailer_id', 'service_type', 'api_provider']
+        required_config = ['mailer_id', 'service_type', 'api_provider', 'customer_id']
         for field in required_config:
             if field not in config:
                 return jsonify({'error': f'Missing configuration: {field}'}), 400
+
+        # Verify customer exists
+        customer = Customer.query.get(config['customer_id'])
+        if not customer:
+            return jsonify({'error': 'Invalid customer ID'}), 400
+
+        # Create Job record
+        job = Job(
+            customer_id=config['customer_id'],
+            filename=session.get('original_filename', 'unknown.csv'),
+            mailer_id=config.get('mailer_id'),
+            sequence_start=int(config.get('starting_sequence', 1)),
+            service_type=config.get('service_type', '040'),
+            barcode_id=config.get('barcode_id', '00'),
+            status='processing',
+            started_at=datetime.utcnow()
+        )
+        db.session.add(job)
+        db.session.commit()
+
+        app.logger.info(f"Created Job {job.id} for customer {customer.name}")
 
         # Load file
         df = file_processor.load_file(session['uploaded_file'])
@@ -343,6 +371,18 @@ def process_file():
         # Generate summary
         summary = file_processor.get_processing_summary(df_with_imb)
 
+        # Update Job record with results
+        job.total_records = summary['total_records']
+        job.successful_records = summary['successful']
+        job.failed_records = summary['failed']
+        job.output_file_path = output_path
+        job.error_file_path = error_path
+        job.status = 'complete'
+        job.completed_at = datetime.utcnow()
+        db.session.commit()
+
+        app.logger.info(f"Job {job.id} completed: {summary['successful']}/{summary['total_records']} successful")
+
         # Return results preview (first 50 rows) - comprehensive NaN cleaning for JSON serialization
         results_df = df_with_imb.head(50)
         # Fill NaN with empty string and handle inf values
@@ -355,11 +395,24 @@ def process_file():
             'summary': summary,
             'results': results_preview,
             'output_filename': os.path.basename(output_path),
-            'error_filename': os.path.basename(error_path) if error_path else None
+            'error_filename': os.path.basename(error_path) if error_path else None,
+            'job_id': job.id
         })
 
     except Exception as e:
         app.logger.error(f"Processing error: {str(e)}\n{traceback.format_exc()}")
+
+        # Update Job status if job was created
+        if 'job' in locals():
+            try:
+                job.status = 'failed'
+                job.error_message = str(e)
+                job.completed_at = datetime.utcnow()
+                db.session.commit()
+            except Exception as db_error:
+                app.logger.error(f"Failed to update job status: {str(db_error)}")
+                db.session.rollback()
+
         return jsonify({'error': f'Processing failed: {str(e)}'}), 500
 
 
@@ -472,7 +525,12 @@ def create_customer():
         customer = Customer(
             name=data['name'],
             company_name=data.get('company_name'),
-            email=data.get('email')
+            email=data.get('email'),
+            default_mailer_id=data.get('default_mailer_id'),
+            default_service_type=data.get('default_service_type', '040'),
+            default_barcode_id=data.get('default_barcode_id', '00'),
+            default_sequence_start=data.get('default_sequence_start', 1),
+            api_provider=data.get('api_provider', 'usps')
         )
 
         db.session.add(customer)
@@ -514,6 +572,16 @@ def update_customer(customer_id):
             customer.company_name = data['company_name']
         if 'email' in data:
             customer.email = data['email']
+        if 'default_mailer_id' in data:
+            customer.default_mailer_id = data['default_mailer_id']
+        if 'default_service_type' in data:
+            customer.default_service_type = data['default_service_type']
+        if 'default_barcode_id' in data:
+            customer.default_barcode_id = data['default_barcode_id']
+        if 'default_sequence_start' in data:
+            customer.default_sequence_start = data['default_sequence_start']
+        if 'api_provider' in data:
+            customer.api_provider = data['api_provider']
 
         customer.updated_at = datetime.utcnow()
         db.session.commit()
@@ -577,6 +645,45 @@ def get_job(job_id):
     except Exception as e:
         app.logger.error(f"Error fetching job: {str(e)}")
         return jsonify({'error': 'Job not found'}), 404
+
+
+@app.route('/api/jobs/<int:job_id>/download/<file_type>')
+def download_job_file(job_id, file_type):
+    """
+    Download processed file from a job.
+
+    Args:
+        job_id: Job ID
+        file_type: 'output' or 'errors'
+
+    Returns:
+        File download
+    """
+    try:
+        job = Job.query.get_or_404(job_id)
+
+        # Get file path based on type
+        if file_type == 'output':
+            file_path = job.output_file_path
+        elif file_type == 'errors':
+            file_path = job.error_file_path
+        else:
+            return jsonify({'error': 'Invalid file type'}), 400
+
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({'error': 'File not found or no longer available'}), 404
+
+        # Send file
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=os.path.basename(file_path),
+            mimetype='text/csv'
+        )
+
+    except Exception as e:
+        app.logger.error(f"Error downloading job file: {str(e)}")
+        return jsonify({'error': 'Failed to download file'}), 500
 
 
 # Error handlers

@@ -50,7 +50,7 @@
                             <i class="bi bi-person-badge"></i> Customer
                         </h6>
                     </div>
-                    <div class="col-md-10">
+                    <div class="col-md-8">
                         <label class="form-label fw-bold">Select Customer <span class="text-danger">*</span></label>
                         <select id="customer-select" class="form-select" required>
                             <option value="">-- Select a customer --</option>
@@ -59,6 +59,11 @@
                     <div class="col-md-2 d-flex align-items-end">
                         <button type="button" class="btn btn-outline-primary w-100" onclick="openCustomerModal()">
                             <i class="bi bi-plus-circle"></i> Add New
+                        </button>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="button" id="view-history-btn" class="btn btn-outline-info w-100" onclick="openJobHistoryModal()" disabled>
+                            <i class="bi bi-clock-history"></i> History
                         </button>
                     </div>
                 </div>
@@ -226,6 +231,52 @@
                                         <input type="email" id="customer-email" class="form-control" placeholder="optional@example.com">
                                         <small class="text-muted">Optional - leave blank if not available</small>
                                     </div>
+                                </div>
+
+                                <!-- Default IMB Settings (Optional) -->
+                                <div class="mt-3">
+                                    <h6 class="border-bottom pb-2 mb-3">
+                                        <i class="bi bi-gear"></i> Default IMB Settings
+                                        <small class="text-muted">(Optional - save time on future jobs)</small>
+                                    </h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Default Mailer ID</label>
+                                            <input type="text" id="customer-mailer-id" class="form-control" placeholder="123456">
+                                            <small class="text-muted">6 or 9 digit USPS Mailer ID</small>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Default Service Type</label>
+                                            <select id="customer-service-type" class="form-select">
+                                                <option value="">Select...</option>
+                                                <option value="040" selected>040 - First-Class Mail</option>
+                                                <option value="240">240 - USPS Marketing Mail</option>
+                                                <option value="340">340 - Periodicals</option>
+                                                <option value="440">440 - Bound Printed Matter</option>
+                                                <option value="540">540 - Package Services</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Default Barcode ID</label>
+                                            <input type="text" id="customer-barcode-id" class="form-control" value="00">
+                                            <small class="text-muted">Usually "00"</small>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Default Starting Sequence</label>
+                                            <input type="number" id="customer-sequence-start" class="form-control" value="1" min="1">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">API Provider</label>
+                                            <select id="customer-api-provider" class="form-select">
+                                                <option value="usps" selected>USPS (Free)</option>
+                                                <option value="smartystreets">SmartyStreets</option>
+                                                <option value="google">Google</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row g-3 mt-3">
                                     <div class="col-12">
                                         <button type="submit" class="btn btn-primary">
                                             <i class="bi bi-save"></i> Save Customer
@@ -251,6 +302,28 @@
                                     Loading customers...
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Job History Modal -->
+    <div class="modal fade" id="jobHistoryModal" tabindex="-1" aria-labelledby="jobHistoryModalLabel" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title" id="jobHistoryModalLabel">
+                        <i class="bi bi-clock-history"></i> Job History
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="job-history-container">
+                        <div class="text-center text-muted py-3">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                            Loading job history...
                         </div>
                     </div>
                 </div>

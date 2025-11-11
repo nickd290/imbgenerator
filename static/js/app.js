@@ -97,6 +97,9 @@ function setupEventListeners() {
         console.error('Customer form not found!');
     }
 
+    // Customer selection - auto-load settings
+    document.getElementById('customer-select').addEventListener('change', onCustomerSelected);
+
     // Download buttons
     document.getElementById('download-btn').addEventListener('click', () => downloadFile('output'));
     document.getElementById('download-errors-btn').addEventListener('click', () => downloadFile('errors'));
@@ -211,7 +214,12 @@ async function saveCustomer(e) {
     const customerData = {
         name: document.getElementById('customer-name').value,
         company_name: document.getElementById('customer-company').value,
-        email: document.getElementById('customer-email').value
+        email: document.getElementById('customer-email').value,
+        default_mailer_id: document.getElementById('customer-mailer-id').value,
+        default_service_type: document.getElementById('customer-service-type').value,
+        default_barcode_id: document.getElementById('customer-barcode-id').value,
+        default_sequence_start: parseInt(document.getElementById('customer-sequence-start').value) || 1,
+        api_provider: document.getElementById('customer-api-provider').value
     };
 
     console.log('Customer data:', customerData);
@@ -264,6 +272,250 @@ function editCustomer(customerId) {
     document.getElementById('customer-name').value = customer.name;
     document.getElementById('customer-company').value = customer.company_name || '';
     document.getElementById('customer-email').value = customer.email || '';
+    document.getElementById('customer-mailer-id').value = customer.default_mailer_id || '';
+    document.getElementById('customer-service-type').value = customer.default_service_type || '040';
+    document.getElementById('customer-barcode-id').value = customer.default_barcode_id || '00';
+    document.getElementById('customer-sequence-start').value = customer.default_sequence_start || 1;
+    document.getElementById('customer-api-provider').value = customer.api_provider || 'usps';
+}
+
+/**
+ * Handle customer selection - auto-load saved settings
+ */
+async function onCustomerSelected(event) {
+    const customerId = parseInt(event.target.value);
+
+    // Enable/disable history button based on customer selection
+    const historyBtn = document.getElementById('view-history-btn');
+    if (historyBtn) {
+        historyBtn.disabled = !customerId;
+    }
+
+    if (!customerId) {
+        // No customer selected, clear settings badge if any
+        const settingsBadge = document.getElementById('settings-loaded-badge');
+        if (settingsBadge) settingsBadge.remove();
+        return;
+    }
+
+    try {
+        // Fetch customer details
+        const response = await fetch(`/api/customers/${customerId}`);
+        if (!response.ok) {
+            console.error('Failed to fetch customer details');
+            return;
+        }
+
+        const data = await response.json();
+        const customer = data.customer;
+
+        // Auto-populate IMB configuration if customer has saved defaults
+        if (customer.default_mailer_id) {
+            document.getElementById('mailer-id').value = customer.default_mailer_id;
+        }
+        if (customer.default_service_type) {
+            document.getElementById('service-type').value = customer.default_service_type;
+        }
+        if (customer.default_barcode_id) {
+            document.getElementById('barcode-id').value = customer.default_barcode_id;
+        }
+        if (customer.default_sequence_start) {
+            document.getElementById('starting-sequence').value = customer.default_sequence_start;
+        }
+
+        // Show badge indicating settings were loaded
+        if (customer.default_mailer_id || customer.default_service_type) {
+            showSettingsLoadedBadge(customer.name || customer.company_name);
+        }
+
+    } catch (error) {
+        console.error('Error loading customer settings:', error);
+    }
+}
+
+/**
+ * Show badge indicating settings were loaded from customer
+ */
+function showSettingsLoadedBadge(customerName) {
+    // Remove existing badge if any
+    const existing = document.getElementById('settings-loaded-badge');
+    if (existing) existing.remove();
+
+    // Create new badge
+    const badge = document.createElement('div');
+    badge.id = 'settings-loaded-badge';
+    badge.className = 'alert alert-info alert-dismissible fade show mt-2';
+    badge.innerHTML = `
+        <i class="bi bi-check-circle"></i>
+        <strong>Settings Loaded:</strong> Using saved defaults for ${customerName}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+
+    // Insert after customer select
+    const customerSelect = document.getElementById('customer-select');
+    customerSelect.parentElement.insertAdjacentElement('afterend', badge);
+}
+
+// ========================================
+// Job History Functions
+// ========================================
+
+/**
+ * Open job history modal
+ */
+async function openJobHistoryModal() {
+    const customerId = parseInt(document.getElementById('customer-select').value);
+    if (!customerId) {
+        showAlert('Please select a customer first', 'warning');
+        return;
+    }
+
+    const modal = safeShowModal('jobHistoryModal');
+    if (modal) {
+        modal.show();
+        await loadJobHistory(customerId);
+    }
+}
+
+/**
+ * Load and display job history
+ */
+async function loadJobHistory(customerId) {
+    const container = document.getElementById('job-history-container');
+
+    try {
+        const response = await fetch(`/api/jobs?customer_id=${customerId}`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch job history');
+        }
+
+        const data = await response.json();
+        const jobs = data.jobs || [];
+
+        if (jobs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-inbox fs-1"></i>
+                    <p class="mt-3">No jobs found for this customer</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Build table
+        const table = `
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date</th>
+                            <th>Filename</th>
+                            <th>Records</th>
+                            <th>Success Rate</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${jobs.map(job => {
+                            const date = new Date(job.created_at);
+                            const successRate = job.total_records > 0
+                                ? ((job.successful_records / job.total_records) * 100).toFixed(1)
+                                : '0.0';
+                            const statusBadge = getStatusBadge(job.status);
+
+                            return `
+                                <tr>
+                                    <td>${date.toLocaleDateString()} ${date.toLocaleTimeString()}</td>
+                                    <td>${job.filename}</td>
+                                    <td>${job.successful_records}/${job.total_records}</td>
+                                    <td>
+                                        <span class="badge ${successRate >= 95 ? 'bg-success' : successRate >= 80 ? 'bg-warning' : 'bg-danger'}">
+                                            ${successRate}%
+                                        </span>
+                                    </td>
+                                    <td>${statusBadge}</td>
+                                    <td>
+                                        ${job.status === 'complete' ? `
+                                            <button class="btn btn-sm btn-primary" onclick="downloadJobFile(${job.id}, 'output')">
+                                                <i class="bi bi-download"></i> Results
+                                            </button>
+                                            ${job.failed_records > 0 ? `
+                                                <button class="btn btn-sm btn-warning" onclick="downloadJobFile(${job.id}, 'errors')">
+                                                    <i class="bi bi-exclamation-triangle"></i> Errors
+                                                </button>
+                                            ` : ''}
+                                        ` : `
+                                            <span class="text-muted">N/A</span>
+                                        `}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        container.innerHTML = table;
+
+    } catch (error) {
+        console.error('Error loading job history:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                Failed to load job history: ${error.message}
+            </div>
+        `;
+    }
+}
+
+/**
+ * Get status badge HTML
+ */
+function getStatusBadge(status) {
+    const badges = {
+        'complete': '<span class="badge bg-success">Complete</span>',
+        'processing': '<span class="badge bg-primary">Processing</span>',
+        'failed': '<span class="badge bg-danger">Failed</span>',
+        'pending': '<span class="badge bg-secondary">Pending</span>'
+    };
+    return badges[status] || '<span class="badge bg-secondary">Unknown</span>';
+}
+
+/**
+ * Download file from job
+ */
+async function downloadJobFile(jobId, fileType) {
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/download/${fileType}`);
+        if (!response.ok) {
+            throw new Error('File not found or no longer available');
+        }
+
+        // Get filename from Content-Disposition header
+        const disposition = response.headers.get('Content-Disposition');
+        let filename = `job_${jobId}_${fileType}.csv`;
+        if (disposition && disposition.includes('filename=')) {
+            filename = disposition.split('filename=')[1].replace(/"/g, '');
+        }
+
+        // Download file
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        showAlert('File downloaded successfully', 'success');
+    } catch (error) {
+        console.error('Error downloading file:', error);
+        showAlert(error.message || 'Failed to download file', 'danger');
+    }
 }
 
 /**
@@ -297,6 +549,11 @@ function resetCustomerForm() {
     document.getElementById('customer-form-title').textContent = 'Add New Customer';
     document.getElementById('customer-form').reset();
     document.getElementById('edit-customer-id').value = '';
+    // Reset to default values
+    document.getElementById('customer-service-type').value = '040';
+    document.getElementById('customer-barcode-id').value = '00';
+    document.getElementById('customer-sequence-start').value = '1';
+    document.getElementById('customer-api-provider').value = 'usps';
 }
 
 // ========================================
@@ -503,14 +760,29 @@ async function processFile() {
         return;
     }
 
+    // Get customer ID
+    const customerId = parseInt(document.getElementById('customer-select').value);
+
+    // Fetch customer to get their API provider preference
+    let apiProvider = 'usps';  // default
+    try {
+        const customerResponse = await fetch(`/api/customers/${customerId}`);
+        if (customerResponse.ok) {
+            const customerData = await customerResponse.json();
+            apiProvider = customerData.customer.api_provider || 'usps';
+        }
+    } catch (error) {
+        console.warn('Could not fetch customer API provider, using default:', error);
+    }
+
     // Get configuration
     const config = {
-        customer_id: parseInt(document.getElementById('customer-select').value),
+        customer_id: customerId,
         mailer_id: document.getElementById('mailer-id').value,
         starting_sequence: parseInt(document.getElementById('starting-sequence').value),
         service_type: document.getElementById('service-type').value,
         barcode_id: document.getElementById('barcode-id').value,
-        api_provider: 'usps'
+        api_provider: apiProvider
     };
 
     // Show progress modal
