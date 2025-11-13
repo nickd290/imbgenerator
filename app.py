@@ -793,18 +793,7 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         app.logger.info('Database tables created successfully')
-
-        # Create default customer if none exist (enables "old way" processing)
-        if Customer.query.count() == 0:
-            default_customer = Customer(
-                name='Default Customer',
-                company_name='Quick Processing',
-                default_sequence_start=1,
-                api_provider=os.getenv('API_PROVIDER', 'usps')
-            )
-            db.session.add(default_customer)
-            db.session.commit()
-            app.logger.info('✅ Created default customer for quick processing')
+        # Note: Default customer is now created via migration (see migrations/versions/e95cde616cef_seed_default_customer.py)
 
     # Run app on Railway-assigned port or 5001 for local dev
     # (port 5000 is used by macOS AirPlay Receiver on macOS 12+)
