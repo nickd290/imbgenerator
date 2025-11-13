@@ -7,6 +7,7 @@ import pandas as pd
 import os
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
+from openpyxl import load_workbook
 
 
 class FileProcessor:
@@ -61,22 +62,36 @@ class FileProcessor:
             raise ValueError("Could not read CSV file with any supported encoding")
 
         elif ext in ['xlsx', 'xls']:
-            # Read Excel with dtype=str to prevent NaN type inference issues
-            # keep_default_na=False prevents empty cells from becoming NaN
+            # Read Excel file directly with openpyxl to bypass pandas' internal handling
+            # This prevents "multiple values for keyword argument" errors
             try:
-                # Use engine_kwargs to bypass openpyxl strict validation
-                # data_only=True: Read only cached values (not formulas)
+                # Load workbook with openpyxl directly
+                # data_only=True: Read only cached values (not formulas) - bypasses openpyxl validation errors
                 # read_only=True: Optimize for read performance
-                df = pd.read_excel(
-                    filepath,
-                    dtype=str,
-                    keep_default_na=False,
-                    engine='openpyxl',
-                    engine_kwargs={'data_only': True, 'read_only': True}
-                )
-                # Replace any remaining empty strings with None for consistency
+                wb = load_workbook(filepath, data_only=True, read_only=True)
+                ws = wb.active
+
+                # Extract all data from worksheet
+                data = list(ws.values)
+
+                # First row contains headers
+                if not data:
+                    raise ValueError("Excel file is empty")
+
+                columns = data[0]
+                rows = data[1:]
+
+                # Create DataFrame from extracted data
+                df = pd.DataFrame(rows, columns=columns)
+
+                # Convert all cells to strings and handle None values
+                df = df.astype(str)
+                df = df.replace('None', None)
                 df = df.replace('', None)
+
+                wb.close()
                 return df
+
             except Exception as e:
                 # If openpyxl fails with validation error, provide helpful message
                 error_msg = str(e)
