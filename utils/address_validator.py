@@ -248,8 +248,29 @@ class AddressValidator:
 
             # Handle rate limiting (429) with exponential backoff
             if response.status_code == 429:
-                retry_after = int(response.headers.get('Retry-After', 60))
-                logger.warning(f"USPS API rate limit hit (429). Waiting {retry_after} seconds before retry...")
+                retry_after_raw = int(response.headers.get('Retry-After', 60))
+                logger.warning(f"USPS API rate limit hit (429). USPS requested wait: {retry_after_raw} seconds")
+
+                # Fail fast if USPS wants us to wait too long (indicates quota exhaustion)
+                if retry_after_raw > 60:
+                    logger.error(f"USPS API rate limit exceeded with excessive retry delay ({retry_after_raw}s). Failing fast.")
+                    return {
+                        'status': 'ERROR',
+                        'message': f'USPS API rate limit exceeded (retry required in {retry_after_raw}s). Your API quota may be exhausted. Please try again later.',
+                        'validated_address': street,
+                        'validated_city': city,
+                        'validated_state': state,
+                        'validated_zip5': '',
+                        'zip_plus4': '',
+                        'delivery_point': '',
+                        'routing_code': '',
+                        'carrier_route': '',
+                        'dpv_status': 'Error'
+                    }
+
+                # Cap retry wait to 60 seconds max (prevent infinite hangs)
+                retry_after = min(retry_after_raw, 60)
+                logger.warning(f"Waiting {retry_after} seconds before retry...")
 
                 import time
                 time.sleep(retry_after)
