@@ -46,6 +46,9 @@ class AddressValidator:
             self.usps_access_token = None
             self.usps_token_expiry = 0
 
+            # Address validation cache (reduces duplicate API calls)
+            self.address_cache = {}
+
             if not self.usps_client_id or not self.usps_client_secret:
                 raise ValueError("USPS OAuth credentials required. Set USPS_CLIENT_ID and USPS_CLIENT_SECRET environment variables.")
 
@@ -144,13 +147,27 @@ class AddressValidator:
                 - routing_code: 11-digit routing code
                 - message: Error or info message
         """
+        # Check cache first to avoid duplicate API calls
+        cache_key = f"{street}|{city}|{state}|{zipcode}".lower().strip()
+        if cache_key in self.address_cache:
+            logger.info(f"Address cache hit: {street}, {city}, {state}")
+            return self.address_cache[cache_key].copy()
+
         try:
             if self.provider == "usps":
-                return self._validate_usps(street, city, state, zipcode)
+                result = self._validate_usps(street, city, state, zipcode)
             elif self.provider == "smartystreets":
-                return self._validate_smartystreets(street, city, state, zipcode)
+                result = self._validate_smartystreets(street, city, state, zipcode)
             elif self.provider == "google":
-                return self._validate_google(street, city, state, zipcode)
+                result = self._validate_google(street, city, state, zipcode)
+            else:
+                result = None
+
+            # Cache successful validations
+            if result and result.get('status') == 'SUCCESS':
+                self.address_cache[cache_key] = result.copy()
+
+            return result
         except Exception as e:
             return {
                 'status': 'ERROR',
@@ -229,6 +246,44 @@ class AddressValidator:
 
             logger.info(f"USPS API Response Status: {response.status_code}")
 
+            # Handle rate limiting (429) with exponential backoff
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 60))
+                logger.warning(f"USPS API rate limit hit (429). Waiting {retry_after} seconds before retry...")
+
+                import time
+                time.sleep(retry_after)
+
+                # Retry the request once after waiting
+                logger.info("Retrying USPS API request after rate limit delay...")
+                response = requests.get(
+                    endpoint,
+                    params=params,
+                    headers={
+                        'Authorization': f'Bearer {access_token}',
+                        'Accept': 'application/json'
+                    },
+                    timeout=10
+                )
+
+                # If still rate limited after retry, return error instead of raising exception
+                if response.status_code == 429:
+                    logger.error("USPS API still rate limited after retry")
+                    return {
+                        'status': 'ERROR',
+                        'message': 'USPS API rate limit exceeded. Please try again later or reduce batch size.',
+                        'validated_address': street,
+                        'validated_city': city,
+                        'validated_state': state,
+                        'validated_zip5': '',
+                        'zip_plus4': '',
+                        'delivery_point': '',
+                        'routing_code': '',
+                        'carrier_route': '',
+                        'dpv_status': 'Error'
+                    }
+
+            # Handle other errors
             if response.status_code >= 300:
                 logger.error(f"USPS API error {response.status_code}: {response.text}")
                 raise Exception(f"USPS API error {response.status_code}: {response.text}")
