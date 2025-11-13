@@ -151,6 +151,13 @@ function populateCustomerDropdown() {
         option.textContent = customer.name + (customer.company_name ? ` (${customer.company_name})` : '');
         select.appendChild(option);
     });
+
+    // Auto-select if only one customer exists (enables "old way" quick processing)
+    if (customers.length === 1) {
+        select.value = customers[0].id;
+        // Trigger change event to load customer settings
+        select.dispatchEvent(new Event('change'));
+    }
 }
 
 /**

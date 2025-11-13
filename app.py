@@ -24,7 +24,7 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_SIZE', 52428800))  # 50MB default
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_UPLOAD_SIZE', 104857600))  # 100MB default
 
 # File storage configuration
 # For Railway: Set UPLOAD_FOLDER=/app/data (mount Railway Volume at /data)
@@ -793,6 +793,18 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         app.logger.info('Database tables created successfully')
+
+        # Create default customer if none exist (enables "old way" processing)
+        if Customer.query.count() == 0:
+            default_customer = Customer(
+                name='Default Customer',
+                company_name='Quick Processing',
+                default_sequence_start=1,
+                api_provider=os.getenv('API_PROVIDER', 'usps')
+            )
+            db.session.add(default_customer)
+            db.session.commit()
+            app.logger.info('✅ Created default customer for quick processing')
 
     # Run app on Railway-assigned port or 5001 for local dev
     # (port 5000 is used by macOS AirPlay Receiver on macOS 12+)
