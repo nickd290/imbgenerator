@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 import pandas as pd
 from datetime import datetime
 import traceback
-import time
 
 from utils.file_processor import FileProcessor
 from utils.address_validator import AddressValidator
@@ -318,10 +317,6 @@ def process_file():
                     state=row['_state'],
                     zipcode=row['_zip']
                 )
-
-                # Rate limiting: Add delay to avoid USPS API 429 errors
-                # 100ms delay = max ~10 requests/second (well under USPS limits)
-                time.sleep(0.1)
 
                 app.logger.info(f"Validation result for row {idx + 1}: {validation_result['status']}")
 
