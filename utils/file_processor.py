@@ -63,10 +63,33 @@ class FileProcessor:
         elif ext in ['xlsx', 'xls']:
             # Read Excel with dtype=str to prevent NaN type inference issues
             # keep_default_na=False prevents empty cells from becoming NaN
-            df = pd.read_excel(filepath, dtype=str, keep_default_na=False)
-            # Replace any remaining empty strings with None for consistency
-            df = df.replace('', None)
-            return df
+            try:
+                # Use engine_kwargs to bypass openpyxl strict validation
+                # data_only=True: Read only cached values (not formulas)
+                # read_only=True: Optimize for read performance
+                df = pd.read_excel(
+                    filepath,
+                    dtype=str,
+                    keep_default_na=False,
+                    engine='openpyxl',
+                    engine_kwargs={'data_only': True, 'read_only': True}
+                )
+                # Replace any remaining empty strings with None for consistency
+                df = df.replace('', None)
+                return df
+            except Exception as e:
+                # If openpyxl fails with validation error, provide helpful message
+                error_msg = str(e)
+                if 'length of value' in error_msg or '205' in error_msg or '206' in error_msg:
+                    raise ValueError(
+                        "Excel file contains data that cannot be read by openpyxl. "
+                        "This often happens with large cell values or unusual formatting. "
+                        "Please try: (1) Save as CSV and upload, or (2) Copy data to a new Excel file and upload that. "
+                        f"Technical details: {error_msg}"
+                    )
+                else:
+                    # Re-raise other Excel reading errors
+                    raise ValueError(f"Could not read Excel file: {error_msg}")
 
         else:
             raise ValueError(f"Unsupported file format: {ext}")
