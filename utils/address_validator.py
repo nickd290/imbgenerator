@@ -273,7 +273,11 @@ class AddressValidator:
             dpv_status = 'Valid' if dpv_confirmation == 'Y' else 'Invalid' if dpv_confirmation == 'N' else 'Uncertain'
 
             # Build routing code: ZIP5 + ZIP4 + Delivery Point (11 digits total)
-            routing_code = f"{zip5}{zip4}{delivery_point}".ljust(11, '0')
+            # Ensure each component is properly zero-padded
+            zip5 = zip5.zfill(5) if zip5 else "00000"
+            zip4 = zip4.zfill(4) if zip4 else "0000"
+            delivery_point = delivery_point.zfill(2) if delivery_point else "00"
+            routing_code = f"{zip5}{zip4}{delivery_point}"
 
             result = {
                 'status': 'SUCCESS',
@@ -357,7 +361,11 @@ class AddressValidator:
         dpv_status = 'Valid' if dpv == 'Y' else 'Invalid' if dpv == 'N' else 'Uncertain'
 
         # Build routing code: ZIP5 + ZIP4 + Delivery Point
-        routing_code = f"{zip5}{zip4}{delivery_point}".ljust(11, '0')
+        # Ensure each component is properly zero-padded
+        zip5 = zip5.zfill(5) if zip5 else "00000"
+        zip4 = zip4.zfill(4) if zip4 else "0000"
+        delivery_point = delivery_point.zfill(2) if delivery_point else "00"
+        routing_code = f"{zip5}{zip4}{delivery_point}"
 
         return {
             'status': 'SUCCESS',
@@ -477,7 +485,11 @@ class AddressValidator:
                 zip4 = zip_code_ext
 
         # Build routing code: ZIP5 + ZIP4 + Delivery Point
-        routing_code = f"{zip5}{zip4}{delivery_point}".ljust(11, '0')
+        # Ensure each component is properly zero-padded
+        zip5 = zip5.zfill(5) if zip5 else "00000"
+        zip4 = zip4.zfill(4) if zip4 else "0000"
+        delivery_point = delivery_point.zfill(2) if delivery_point else "00"
+        routing_code = f"{zip5}{zip4}{delivery_point}"
 
         return {
             'status': 'SUCCESS',
